@@ -44,8 +44,8 @@ pub use follow::{Follow, FollowStart};
 pub use primitives::*;
 pub use push::Push;
 pub use table::{Table, buffer_has_identifier, get_root, get_size_prefixed_root};
+pub use vtable::{VTable, field_index_to_field_offset, field_offset_to_field_index};
 pub use vector::{SafeSliceAccess, Vector, follow_cast_ref};
-pub use vtable::field_index_to_field_offset;
 
 // TODO(rw): Unify `create_vector` and `create_vector_direct` by using
 //           `Into<Vector<...>>`.
