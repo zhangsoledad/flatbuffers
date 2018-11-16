@@ -17,24 +17,25 @@
 use follow::Follow;
 use primitives::*;
 use vtable::VTable;
+use bytes::Bytes;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Table<'a> {
-    pub buf: &'a [u8],
+#[derive(Clone, Debug, PartialEq)]
+pub struct Table {
+    pub buf: Bytes,
     pub loc: usize,
 }
 
-impl<'a> Table<'a> {
+impl Table {
     #[inline]
-    pub fn new(buf: &'a [u8], loc: usize) -> Self {
+    pub fn new(buf: Bytes, loc: usize) -> Self {
         Table { buf: buf, loc: loc }
     }
     #[inline]
-    pub fn vtable(&self) -> VTable<'a> {
-        <BackwardsSOffset<VTable<'a>>>::follow(self.buf, self.loc)
+    pub fn vtable(&self) -> VTable {
+        <BackwardsSOffset<VTable>>::follow(&self.buf, self.loc)
     }
     #[inline]
-    pub fn get<T: Follow<'a> + 'a>(
+    pub fn get<T: Follow>(
         &self,
         slot_byte_loc: VOffsetT,
         default: Option<T::Inner>,
@@ -43,34 +44,37 @@ impl<'a> Table<'a> {
         if o == 0 {
             return default;
         }
-        Some(<T>::follow(self.buf, self.loc + o))
+        Some(<T>::follow(&self.buf, self.loc + o))
     }
 }
 
-impl<'a> Follow<'a> for Table<'a> {
-    type Inner = Table<'a>;
+impl Follow for Table {
+    type Inner = Table;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        Table { buf: buf, loc: loc }
+    fn follow(buf: &Bytes, loc: usize) -> Self::Inner {
+        Table { buf: buf.clone(), loc: loc }
     }
 }
 
 #[inline]
-pub fn get_root<'a, T: Follow<'a> + 'a>(data: &'a [u8]) -> T::Inner {
-    <ForwardsUOffset<T>>::follow(data, 0)
+pub fn get_root<T: Follow>(data: &[u8]) -> T::Inner {
+    <ForwardsUOffset<T>>::follow(&Bytes::from(data), 0)
 }
+
 #[inline]
-pub fn get_size_prefixed_root<'a, T: Follow<'a> + 'a>(data: &'a [u8]) -> T::Inner {
-    <SkipSizePrefix<ForwardsUOffset<T>>>::follow(data, 0)
+pub fn get_size_prefixed_root<'a, T: Follow>(data: &[u8]) -> T::Inner {
+    <SkipSizePrefix<ForwardsUOffset<T>>>::follow(&Bytes::from(data), 0)
 }
+
 #[inline]
 pub fn buffer_has_identifier(data: &[u8], ident: &str, size_prefixed: bool) -> bool {
     assert_eq!(ident.len(), FILE_IDENTIFIER_LENGTH);
+    let bytes = Bytes::from(data);
 
     let got = if size_prefixed {
-        <SkipSizePrefix<SkipRootOffset<FileIdentifier>>>::follow(data, 0)
+        <SkipSizePrefix<SkipRootOffset<FileIdentifier>>>::follow(&bytes, 0)
     } else {
-        <SkipRootOffset<FileIdentifier>>::follow(data, 0)
+        <SkipRootOffset<FileIdentifier>>::follow(&bytes, 0)
     };
 
     ident.as_bytes() == got

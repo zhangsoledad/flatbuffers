@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-extern crate smallvec;
-
+use smallvec;
 use std::cmp::max;
 use std::marker::PhantomData;
 use std::ptr::write_bytes;
@@ -28,6 +27,7 @@ use table::Table;
 use vtable::{VTable, field_index_to_field_offset};
 use vtable_writer::VTableWriter;
 use vector::{SafeSliceAccess, Vector};
+use bytes::Bytes;
 
 #[derive(Clone, Copy, Debug)]
 struct FieldLoc {
@@ -212,7 +212,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     ///
     /// Asserts that the builder is in a nested state.
     #[inline]
-    pub fn end_vector<T: Push>(&mut self, num_elems: usize) -> WIPOffset<Vector<'fbb, T>> {
+    pub fn end_vector<T: Push>(&mut self, num_elems: usize) -> WIPOffset<Vector<T>> {
         self.assert_nested("end_vector");
         self.nested = false;
         let o = self.push::<UOffsetT>(num_elems as UOffsetT);
@@ -246,7 +246,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     /// always safe, on any platform: bool, u8, i8, and any
     /// FlatBuffers-generated struct.
     #[inline]
-    pub fn create_vector_direct<'a: 'b, 'b, T: SafeSliceAccess + Push + Sized + 'b>(&'a mut self, items: &'b [T]) -> WIPOffset<Vector<'fbb, T>> {
+    pub fn create_vector_direct<'a: 'b, 'b, T: SafeSliceAccess + Push + Sized + 'b>(&'a mut self, items: &'b [T]) -> WIPOffset<Vector<T>> {
         self.assert_not_nested("create_vector_direct can not be called when a table or vector is under construction");
         let elem_size = T::size();
         self.align(items.len() * elem_size, T::alignment().max_of(SIZE_UOFFSET));
@@ -266,7 +266,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     /// Speed-sensitive users may wish to reduce memory usage by creating the
     /// vector manually: use `start_vector`, `push`, and `end_vector`.
     #[inline]
-    pub fn create_vector_of_strings<'a, 'b>(&'a mut self, xs: &'b [&'b str]) -> WIPOffset<Vector<'fbb, ForwardsUOffset<&'fbb str>>> {
+    pub fn create_vector_of_strings<'a, 'b>(&'a mut self, xs: &'b [&'b str]) -> WIPOffset<Vector<ForwardsUOffset<&'fbb str>>> {
         self.assert_not_nested("create_vector_of_strings can not be called when a table or vector is under construction");
         // internally, smallvec can be a stack-allocated or heap-allocated vector.
         // we expect it to usually be stack-allocated.
@@ -284,7 +284,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     /// Speed-sensitive users may wish to reduce memory usage by creating the
     /// vector manually: use `start_vector`, `push`, and `end_vector`.
     #[inline]
-    pub fn create_vector<'a: 'b, 'b, T: Push + Copy + 'b>(&'a mut self, items: &'b [T]) -> WIPOffset<Vector<'fbb, T::Output>> {
+    pub fn create_vector<'a: 'b, 'b, T: Push + Copy + 'b>(&'a mut self, items: &'b [T]) -> WIPOffset<Vector<T::Output>> {
         let elem_size = T::size();
         self.align(items.len() * elem_size, T::alignment().max_of(SIZE_UOFFSET));
         for i in (0..items.len()).rev() {
@@ -315,7 +315,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
                     slot_byte_loc: VOffsetT,
                     assert_msg_name: &'static str) {
         let idx = self.used_space() - tab_revloc.value() as usize;
-        let tab = Table::new(&self.owned_buf[self.head..], idx);
+        let tab = Table::new(Bytes::from(&self.owned_buf[self.head..]), idx);
         let o = tab.vtable().get(slot_byte_loc) as usize;
         assert!(o != 0, "missing required field {}", assert_msg_name);
     }
@@ -435,7 +435,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
             }
         }
         let dup_vt_use = {
-            let this_vt = VTable::init(&self.owned_buf[..], self.head);
+            let this_vt = VTable::init(Bytes::from(&self.owned_buf[..]), self.head);
             self.find_duplicate_stored_vtable_revloc(this_vt)
         };
 
@@ -468,7 +468,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     #[inline]
     fn find_duplicate_stored_vtable_revloc(&self, needle: VTable) -> Option<UOffsetT> {
         for &revloc in self.written_vtable_revpos.iter().rev() {
-            let o = VTable::init(&self.owned_buf[..], self.head + self.used_space() - revloc as usize);
+            let o = VTable::init(Bytes::from(&self.owned_buf[..]), self.head + self.used_space() - revloc as usize);
             if needle == o {
                 return Some(revloc);
             }
